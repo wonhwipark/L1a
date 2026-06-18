@@ -1,0 +1,10 @@
+# Claude Code 개인 설정
+.claude/
+
+# 바이너리 압축 파일
+*.7z
+*.zip
+*.tar.gz
+
+# 빈 파일
+$null

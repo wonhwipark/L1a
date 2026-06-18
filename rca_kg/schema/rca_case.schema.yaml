@@ -1,0 +1,143 @@
+# ============================================================
+# RCA Case Schema — rca_kg/schema/rca_case.schema.yaml
+# 역할: cases/*.yaml 의 필드 정의 및 허용 값 규칙
+# ============================================================
+
+case_id:
+  type: string
+  format: "YYYY-MM-DD_<issue_type>_<3-digit-seq>"
+  example: "2026-06-19_rach_failure_001"
+  required: true
+
+issue_type:
+  type: enum
+  values:
+    - rach_failure
+    - scg_failure
+    - tx_abnormal
+    - l2_retx
+    - crash
+  required: true
+
+status:
+  type: enum
+  values:
+    - analyzed    # 분석 완료, 미검토
+    - reviewed    # 담당자 검토 완료
+    - confirmed   # Root Cause 확정
+    - rejected    # 분석 오류 또는 중복
+  required: true
+  default: analyzed
+
+# ─────────────────────────────────────
+# source
+# ─────────────────────────────────────
+source:
+  original_log:
+    path:      { type: string, note: "원본 로그 파일 경로 (절대 또는 상대)" }
+    size_bytes: { type: integer }
+    checksum:  { type: string, format: "sha256:<hex>", optional: true }
+    time_range:
+      start: { type: string, format: "ISO8601" }
+      end:   { type: string, format: "ISO8601" }
+  signal_file: { type: string, note: "rca_kg/signals/<case_id>_signal.txt" }
+
+# ─────────────────────────────────────
+# symptom
+# ─────────────────────────────────────
+symptom:
+  occurred_at:    { type: string, format: "ISO8601" }
+  module:         { type: list[string], example: ["L1", "RRC"] }
+  severity:       { type: enum, values: [DEBUG, INFO, WARNING, ERROR, FATAL] }
+  ue_id:          { type: string, note: "마스킹 처리 권장" }
+  session_id:     { type: string, optional: true }
+  correlation_id: { type: string, optional: true }
+  description:    { type: string, note: "한 줄 증상 요약" }
+
+# ─────────────────────────────────────
+# log_patterns
+# ─────────────────────────────────────
+log_patterns:
+  type: list
+  items:
+    pattern_id:  { type: string, format: "lp_<slug>" }
+    normalized:  { type: string, note: "정규화된 패턴 문자열" }
+    raw_examples: { type: list[string], note: "실제 로그 원문 예시 1~3줄" }
+    line_range:  { type: string, format: "<start>-<end>", note: "원본 로그 기준 라인 번호" }
+    frequency:   { type: integer, note: "해당 패턴 발생 횟수" }
+
+# ─────────────────────────────────────
+# root_cause
+# ─────────────────────────────────────
+root_cause:
+  category:
+    type: enum
+    values:       # taxonomy.yaml 의 root_cause_categories 와 동기화
+      - radio_access_timeout
+      - nr_reconfig_timeout
+      - scheduler_grant_missing
+      - rlc_max_retransmission
+      - harq_retx_exceeded
+      - null_pointer_crash
+      - assertion_failure
+      - api_contract_mismatch
+      - config_parameter_mismatch
+      - unknown
+  summary:    { type: string, note: "Root Cause 한 줄 요약" }
+  confidence:
+    type: enum
+    values:
+      - low        # 단서만 있음, 재현 미확인
+      - medium     # log 근거 있음, 수정 미적용
+      - high       # 수정 후 증상 소멸 확인
+      - confirmed  # TC 추가 또는 동료 리뷰 완료
+  evidence:   { type: list[string], note: "log_patterns 의 pattern_id 참조" }
+
+# ─────────────────────────────────────
+# related
+# ─────────────────────────────────────
+related:
+  jira:  { type: list[string], note: "Jira 티켓 ID 목록" }
+  hld:   { type: list[string], note: "HLD 문서 참조" }
+  tc:    { type: list[string], note: "관련 Test Case ID" }
+  api:   { type: list[string], note: "관련 API/IPC 이름" }
+
+# ─────────────────────────────────────
+# fix
+# ─────────────────────────────────────
+fix:
+  summary: { type: string }
+  commit:  { type: string, optional: true, note: "git commit hash 또는 null" }
+
+# ─────────────────────────────────────
+# prevent_rule
+# ─────────────────────────────────────
+prevent_rule:
+  type: list
+  items:
+    rule:         { type: string }
+    tc_candidate: { type: string, optional: true }
+
+# ─────────────────────────────────────
+# skill_seed
+# ─────────────────────────────────────
+skill_seed:
+  update_target:      { type: string, note: "skills_seed/<file>.md" }
+  checklist_candidate: { type: list[string] }
+
+# ─────────────────────────────────────
+# review
+# ─────────────────────────────────────
+review:
+  status:      { type: enum, values: [draft, reviewed, confirmed, rejected] }
+  reviewer:    { type: string }
+  reviewed_at: { type: string, format: "ISO8601", optional: true }
+  comment:     { type: string, optional: true }
+
+# ─────────────────────────────────────
+# links
+# ─────────────────────────────────────
+links:
+  similar_cases: { type: list[string], note: "유사 case_id 목록" }
+  supersedes:    { type: list[string], note: "이 분석이 대체하는 이전 case_id" }
+  duplicates:    { type: list[string], note: "중복 case_id" }

@@ -1,0 +1,81 @@
+# ============================================================
+# 이 파일은 작성 템플릿 예시입니다.
+# 실제 분석 시 파일명을 YYYY-MM-DD_rach_failure_001.yaml 형식으로 복사하여 사용하세요.
+# ============================================================
+
+case_id: EXAMPLE_rach_failure_001
+issue_type: rach_failure
+status: draft   # analyzed | reviewed | confirmed | rejected
+
+source:
+  original_log:
+    path: logs/raw/EXAMPLE.txt
+    size_bytes: 0
+    checksum: sha256:
+    time_range:
+      start: "2026-01-01T00:00:00+09:00"
+      end:   "2026-01-01T01:00:00+09:00"
+  signal_file: signals/EXAMPLE_rach_failure_001_signal.txt
+
+symptom:
+  occurred_at: "2026-01-01T00:22:03+09:00"
+  module:
+    - L1
+    - RRC
+  severity: ERROR
+  ue_id: masked_ue_001        # 실제 UE ID는 마스킹
+  session_id: masked_session_001
+  correlation_id: masked_corr_001
+  description: "RACH procedure 실패 — PHY_TIMER_EXPIRY 발생, msg2 응답 없음"
+
+log_patterns:
+  - pattern_id: lp_rach_msg2_timeout
+    normalized: "RACH attempt failed: msg2 timeout"
+    raw_examples:
+      - "[00:22:02.123] [L1] PHY_TIMER_EXPIRY: RACH attempt #3 failed, reason=msg2 timeout"
+      - "[00:22:02.456] [RRC] RACH procedure failed after 3 attempts"
+    line_range: "120340-120520"   # 원본 로그 기준 라인 번호
+    frequency: 3
+
+root_cause:
+  category: radio_access_timeout   # taxonomy.yaml 참조
+  summary: "RAR/msg2 응답 지연으로 RACH procedure 실패, 3회 재시도 후 최종 실패"
+  confidence: medium   # low | medium | high | confirmed (taxonomy.yaml 기준 참조)
+  evidence:
+    - lp_rach_msg2_timeout
+
+related:
+  jira: []        # 예: ["L1-1234"]
+  hld: []
+  tc: []
+  api:
+    - xxx_RACH_REQ
+    - xxx_RACH_CNF
+
+fix:
+  summary: "RACH timeout 관련 파라미터 및 retry 조건 점검 필요"
+  commit: null    # 수정 commit hash 또는 null
+
+prevent_rule:
+  - rule: "msg2 timeout 3회 이상 연속 발생 시 RACH parameter 확인"
+    tc_candidate: "RACH msg2 timeout retry scenario TC 추가"
+  - rule: "동일 cell 다수 UE에서 RACH failure 시 cell load 확인"
+    tc_candidate: ""
+
+skill_seed:
+  update_target: skills_seed/rach_failure_analyzer.md
+  checklist_candidate:
+    - "msg1~msg4 단계 중 최초 실패 지점 확인"
+    - "RAR timeout 반복 횟수 확인"
+    - "동일 UE/session/correlation_id timeline 확인"
+
+review:
+  status: draft
+  reviewer: ""
+  reviewed_at: ""
+  comment: ""
+
+links:
+  similar_cases: []
+  supersedes: []
+  duplicates: []
