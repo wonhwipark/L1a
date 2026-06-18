@@ -2,7 +2,6 @@
 .claude/
 
 # 바이너리 압축 파일
-*.7z
 *.zip
 *.tar.gz
 
