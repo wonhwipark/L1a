@@ -1,9 +1,5 @@
 # 5.5 RCA Knowledge Graph — Python Package 구현 프롬프트 기본틀
 
-> **v2 동기화 (2026-06-22):** rca_case.schema.yaml v2 전면 개정 사항 반영.
-> 변경 근거: `prompt/deepdive/RCA_FEEDBACK_LOOP_DESIGN_20260622_KST.md`
-> 원본 백업: `5_5_rca_knowledge_graph_py_package_prompt_v1_backup.md`
-
 ---
 
 ## 1. 목적
@@ -104,28 +100,24 @@ RCA를 Graph 형태로 저장하면 특정 API, 특정 Root Cause, 특정 Log Pa
 
 ```text
 5.2 API Call Flow DB 구축 필요; Jira와 RCA 문서 연결 필요; Log Pattern 저장 기준 필요; Root Cause 분류 기준 필요
-문제 유형별 pre-filter keyword/signature 기준 필요; RCA YAML 저장 템플릿 필요; signal 파일에 포함할 cptime/module/severity/UE-session-correlation id 기준 필요 (line number 미사용 — L1SW 출력에 line number 없음)
+문제 유형별 pre-filter keyword/signature 기준 필요; RCA YAML 저장 템플릿 필요; signal 파일에 포함할 line number/timestamp/module/severity/UE-session-correlation id 기준 필요
 ```
 
 ### 5.4.1 Step 1 대용량 로그 처리 방침
 
 대용량 로그(100MB~1GB txt)는 원문 전체를 AI Context에 직접 입력하지 않는다.
-Step 1에서는 **L1SW Log Analyzer** 가 `.sdm` → `_l1sw.txt` 로 1차 축소(약 80%)한 뒤, 필요 시 issue-type별 pre-filter 로 2차 필터링한다.
+Step 1에서는 문제 유형별 pre-filter 로 `signal_<issue_type>.txt` 를 먼저 생성한다.
 
 ```text
 현재:
-log.sdm (100MB~1GB) → Claude/Roo 분석 요청 → 결과 휘발
+log.txt (100MB~1GB) → Claude/Roo 분석 요청 → 결과 휘발
 
-Step 1 개선 (L1SW + 5.5 2단계 필터):
-log.sdm → L1SW parse.ps1 → _l1sw.txt (1차 축소)
-        → issue-type pre-filter (2차, 선택) → signal_<issue_type>.txt
-        → Claude/Roo 분석 → RCA YAML 저장
+Step 1 개선:
+log.txt → issue-type pre-filter → signal_<issue_type>.txt → Claude/Roo 분석 → RCA YAML 저장
 ```
 
-signal 파일에는 가능한 경우 cptime, module/component, severity, UE/session/correlation id 를 포함한다.
-**line number 는 사용하지 않는다** — L1SW 출력에 line number 가 없으며, cptime 기반 정렬이 시험 간 비교에 적합하다 (wall-clock 드리프트 회피).
-분석 결과는 `rca_kg/cases/<fingerprint-slug>_<issue_type>_<seq>.yaml` 로 저장하여 향후 Skill Seed 및 Knowledge Graph Seed 로 재사용한다.
-case_id 에 날짜를 포함하지 않는다 — 동일 원인이 여러 날짜에 걸쳐 재발할 수 있으므로 fingerprint 기반 ID 를 사용한다.
+signal 파일에는 가능한 경우 원본 line number, timestamp, module/component, severity, UE/session/correlation id 를 포함한다.
+분석 결과는 `rca_kg/cases/YYYY-MM-DD_<issue_type>_<seq>.yaml` 로 저장하여 향후 Skill Seed 및 Knowledge Graph Seed 로 재사용한다.
 
 ### 5.5 Storage / Reuse
 
@@ -177,13 +169,11 @@ rca_knowledge_graph/
 
 **Step 1 (파일 기반 KG):**
 ```text
-- Large log file path (.sdm 원본 또는 L1SW 출력 _l1sw.txt)
-- Issue type (rach_failure, scg_failure, tx_abnormal, l2_max_retransmission)
-  ※ crash 는 L1SW 전담 — 5.5 issue_type에서 제외됨 (deprecated)
-- Pre-filter keyword/signature rule (scripts/rach_failure_prefilter.ps1 등, 또는 keywords.yaml 참조)
+- Large log txt file path
+- Issue type (rach_failure, scg_failure, tx_abnormal, l2_retx, crash)
+- Pre-filter keyword/signature rule (scripts/rach_failure_prefilter.ps1 등)
 - Signal file 저장 경로 (rca_kg/signals/<case_id>_signal.txt)
 - RCA YAML 저장 경로 (rca_kg/cases/<case_id>.yaml)
-  ※ case_id 형식: <fingerprint-slug>_<issue_type>_<3-digit-seq>
 ```
 
 **Step 2 (Python 패키지, 향후):**
@@ -201,12 +191,10 @@ rca_knowledge_graph/
 
 **Step 1 (파일 기반 KG):**
 ```text
-- rca_kg/signals/<case_id>_signal.txt            ← pre-filter 출력 (또는 L1SW _l1sw.txt 직접 사용)
-- rca_kg/cases/<case_id>.yaml                    ← RCA 분석 결과 (schema/rca_case.schema.yaml v2 준수)
-- rca_kg/cases/unresolved/<date>_<type>_<seq>_PENDING.yaml  ← 담당영역 밖 이관 case
-- rca_kg/indexes/index.md 업데이트               ← Case 목록 한 줄 추가
+- rca_kg/signals/<case_id>_signal.txt        ← pre-filter 출력
+- rca_kg/cases/<case_id>.yaml                ← RCA 분석 결과 (schema/rca_case.schema.yaml 준수)
+- rca_kg/indexes/index.md 업데이트           ← Case 목록 한 줄 추가
 - skills_seed/<issue_type>_analyzer.md 업데이트 후보  ← 새 패턴 발견 시
-- fingerprint 매칭 결과                           ← 기존 case 재발 시 occurrence_count++ 만 수행
 ```
 
 **Step 2 (Python 패키지, 향후):**
@@ -256,45 +244,22 @@ ai-mcp-package-v1.0 기반 환경은 이미 준비되어 있다고 가정한다.
 13. 실제 Jira 생성이 필요한 경우 생성 전 preview를 출력한다.
 14. `examples/sample_input.md`와 `examples/sample_output.md`를 작성한다.
 15. `tests/test_dry_run.py`에 외부 시스템 변경 없이 실행 가능한 최소 테스트를 작성한다.
-16. Step 1 대용량 로그 처리 경로를 제공한다.
-    - 원본 `.sdm` 전체를 AI Context에 직접 입력하지 않는다.
-    - 입력은 L1SW 가 생성한 `_l1sw.txt` (1차 축소 완료) 또는 원본 `.sdm` 경로를 받는다.
+16. Step 1 대용량 로그 pre-filter 경로를 제공한다.
+    - 원본 `log.txt` 전체를 AI Context에 직접 입력하지 않는다.
+    - 입력으로 large log txt file path 와 issue type 을 받는다.
     - issue type 별 keyword/signature rule 을 적용해 `signal_<issue_type>.txt` 를 생성한다.
-    - signal 에는 가능한 경우 cptime, module/component, severity, UE/session/correlation id 를 포함한다.
-      **line number 는 포함하지 않는다** — L1SW 출력에 line number 가 없으며, cptime 기반 정렬을 사용한다.
+    - signal 에는 가능한 경우 원본 line number, timestamp, module/component, severity, UE/session/correlation id 를 포함한다.
     - signal 파일 생성은 dry-run 에서도 preview 가능해야 한다.
 17. 기본 issue type 별 keyword/signature rule 초안을 README 또는 config 예시에 포함한다.
-    **키워드 SSOT 는 `keywords.yaml` 이다** — 아래는 초안이며, 확정 시 keywords.yaml 에 통합한다.
-    키워드는 모듈명이 아닌 증상/프로토콜 용어이다 (L1SW manifest 의 모듈별 regex 와 축이 다름).
-    - rach_failure: RACH, rach_failure, Msg1~Msg4, RAR, preamble, PHY_TIMER_EXPIRY
+    - rach_failure: RACH, rach_failure, msg1~msg4, RAR, preamble, PHY_TIMER_EXPIRY
     - scg_failure: SCG, scgFailure, PSCell, secondary, B1, B2, handover
     - tx_abnormal: TX abnormal, tx fail, ul grant, harq
-    - l2_max_retransmission: max retransmission, RLC, HARQ, retx
-    ※ crash 는 L1SW 전담 — 5.5 issue_type에서 제외됨 (deprecated, crash_analyzer.md 도 deprecated)
+    - l2_retx: max retransmission, RLC, HARQ, retx
+    - crash: ASSERT, FATAL, crash, backtrace, PC=, LR=, stack
 18. RCA 분석 결과를 `rca_kg/cases/<case_id>.yaml` 로 저장할 수 있게 한다.
-    - 파일명: `<fingerprint-slug>_<issue_type>_<3-digit-seq>.yaml`
-      (날짜 기반 아님 — 동일 원인 재발 시 하나의 case 로 관리)
-    - `rca_kg/schema/rca_case.schema.yaml` (v2) 필드 구조를 준수한다.
+    - 파일명: `YYYY-MM-DD_<issue_type>_<3-digit-seq>.yaml`
+    - `rca_kg/schema/rca_case.schema.yaml` 필드 구조를 준수한다.
     - 정식 Skill 파일이 없을 때는 `rca_kg/skills_seed/<issue_type>_analyzer.md` 를 참조한다.
-19. **fingerprint 블록** 을 반드시 생성한다.
-    - `signature_set`: 등장한 시그니처 집합 (keywords.yaml 의 signature ID 참조, 순서 무관)
-    - `sequence`: cptime 기준 정렬한 시그니처 상대 순서 (절대시각 미포함)
-    - `sequence_status`: LLM 자동 추출 시 `draft`, 분석자 확인 후 `confirmed`
-    - 신규 case 생성 전 기존 cases/ 와 fingerprint(signature_set+sequence) 로 매칭한다.
-      일치하는 case 있으면 신규 case 미생성, 기존 case 의 `occurrence_count++` + `recent_occurrences` 추가만 수행.
-20. **재발 관리** — `occurrence_count` + `recent_occurrences` (최근 5건만 유지).
-    - `recent_occurrences[].jira` 로 Jira 참조를 단일화한다 (상위 `related.jira` 없음).
-    - 5건 초과 시 가장 오래된 항목 순환 폐기 (의도적 트레이드오프).
-21. **unresolved 처리** — 담당영역 밖 판단 시:
-    - `rca_kg/cases/unresolved/<date>_<issue_type>_<seq>_PENDING.yaml` 로 생성
-    - `status: unresolved`, `handoff` 블록 필수 작성
-    - `root_cause` / `fix` / `review` 는 명시적 `null` (분석자 미입력 신호)
-    - ≠ "원인 모름" — 원인 불확실은 `status:analyzed` + `confidence:low` 로 표현
-22. **unresolved → confirmed 통합(merge) 절차** 를 지원한다.
-    - 분석자가 PENDING 파일에 root_cause/fix/review 직접 입력 후 status 변경
-    - fingerprint 매칭: 기존 case 일치 → occurrence_count++, PENDING 폐기
-    - fingerprint 불일치 → 정식 case_id 부여, cases/ 로 승격
-    - index.md 갱신
 
 완료 조건:
 - dry-run 실행 가능
@@ -312,11 +277,8 @@ ai-mcp-package-v1.0 기반 환경은 이미 준비되어 있다고 가정한다.
 **Step 1 검증:**
 ```text
 - 샘플 로그에서 issue type 별 signal 파일을 생성할 수 있어야 한다.
-- signal 파일에는 가능한 경우 cptime 과 핵심 log line 이 포함되어야 한다 (line number 미사용).
-- rca_kg/cases/<case_id>.yaml 출력이 rca_case.schema.yaml v2 필드를 준수해야 한다.
-- fingerprint 블록 (signature_set + sequence) 이 반드시 포함되어야 한다.
-- 기존 case 와 fingerprint 매칭 → 재발 시 occurrence_count 증가만 확인.
-- unresolved case 는 cases/unresolved/ 에 PENDING 파일로 분리, root_cause/fix/review 가 null.
+- signal 파일에는 가능한 경우 line number 와 핵심 log line 이 포함되어야 한다.
+- rca_kg/cases/<case_id>.yaml 출력이 rca_case.schema.yaml 필드를 준수해야 한다.
 - rca_kg/indexes/index.md 에 새 케이스 한 줄이 추가되어야 한다.
 - 외부 시스템 변경 없이 dry-run 으로 pre-filter 경로를 검증할 수 있어야 한다.
 ```
@@ -338,16 +300,12 @@ ai-mcp-package-v1.0 기반 환경은 이미 준비되어 있다고 가정한다.
 **Step 1 보완:**
 ```text
 - Python streaming parser 로 pre-filter 고도화
-- UE/session/correlation id 기반 timeline reconstruction (cptime 정렬)
+- UE/session/correlation id 기반 timeline reconstruction
 - masking/normalization rule 고도화
-- keywords.yaml SSOT 구현 (issue_type별 confirmed/candidate/rejected 구조)
-- L1SW manifest fragment (rca_rach.json 등) 실제 작성 — 사내 환경에서 진행
-- fingerprint 자동 초안 정확도 검증 (sequence_status: draft → confirmed 비율 추적)
-- rca_kg/cases/ 10건 이상 누적 후 by_issue_type.yaml, by_root_cause.yaml, by_fingerprint.yaml index 추가
+- rca_kg/cases/ 10건 이상 누적 후 by_issue_type.yaml, by_root_cause.yaml, by_log_pattern.yaml index 추가
 - RCA YAML 누적 기반 정식 Skill 파일 생성
 - Knowledge Graph node/edge 자동 적재
 - SCG failure 확인된 keyword 업데이트 (현재 전체 추정)
-- taxonomy.yaml 에 fingerprint/signature 개념 반영 여부 확인
 ```
 
 **Step 2 보완 (향후):**
@@ -371,39 +329,28 @@ ai-mcp-package-v1.0 기반 환경은 이미 준비되어 있다고 가정한다.
 
 ```text
 사용자:
-  1. L1SW Log Analyzer 로 .sdm → _l1sw.txt 생성 (1차 필터)
-  2. (선택) pre-filter 스크립트 실행 (2차 필터, PowerShell)
-  3. Claude Code 에 분석 요청
+  1. pre-filter 스크립트 실행 (PowerShell)
+  2. Claude Code 에 분석 요청
 
 Claude Code:
-  4. signal 파일 읽기 (@rca_kg/signals/... 또는 _l1sw.txt 직접)
-  5. skills_seed 참조 (@rca_kg/skills_seed/...)
-  6. fingerprint 생성 (signature_set + cptime 기반 sequence)
-  7. 기존 cases/ 와 fingerprint 매칭
-     → 일치: occurrence_count++ + recent_occurrences 추가만 (신규 case 미생성)
-     → 불일치: cases/ 에 신규 YAML 작성
-  8. 담당영역 밖 판단 시: cases/unresolved/ 에 PENDING 파일 생성
-  9. indexes/index.md 업데이트 (한 줄 추가)
-  10. skills_seed 업데이트 후보 제안 (직접 수정 또는 제안)
+  3. signal 파일 읽기 (@rca_kg/signals/...)
+  4. skills_seed 참조 (@rca_kg/skills_seed/...)
+  5. cases/ 에 YAML 작성 (새 파일 생성)
+  6. indexes/index.md 업데이트 (한 줄 추가)
+  7. skills_seed 업데이트 후보 제안 (직접 수정 또는 제안)
 ```
 
 ### 13.2 Claude Code 에 분석 요청하는 표준 프롬프트
 
 ```text
-@rca_kg/signals/<signal_file_name>.txt
+@rca_kg/signals/YYYY-MM-DD_<issue_type>_001_signal.txt
 @rca_kg/skills_seed/<issue_type>_analyzer.md
-@rca_kg/schema/rca_case.schema.yaml
-@rca_kg/cases/EXAMPLE_v2_rach_failure_001.yaml
+@rca_kg/cases/EXAMPLE_rach_failure_001.yaml
 
 위 signal 파일을 분석해줘.
 분석 기준은 skills_seed 의 checklist 를 따라줘.
-schema v2 를 준수해줘 — 특히:
-  - fingerprint 블록 (signature_set + cptime 기준 sequence) 반드시 생성
-  - line number 사용 금지, cptime_range 사용
-  - 기존 cases/ 와 fingerprint 매칭 후 재발이면 occurrence_count++ 만 수행
-  - 담당영역 밖이면 cases/unresolved/ 에 PENDING 파일로 생성 (root_cause/fix/review = null)
-결과를 EXAMPLE_v2 yaml 의 형식에 맞춰 아래 파일로 저장해줘:
-  rca_kg/cases/<fingerprint-slug>_<issue_type>_001.yaml
+결과를 EXAMPLE yaml 의 형식에 맞춰 아래 파일로 저장해줘:
+  rca_kg/cases/YYYY-MM-DD_<issue_type>_001.yaml
 저장 후 rca_kg/indexes/index.md 에 한 줄 추가해줘.
 ```
 
@@ -411,9 +358,7 @@ schema v2 를 준수해줘 — 특히:
 
 | 파일 | 작업 | 시점 |
 |------|------|------|
-| `rca_kg/cases/<case_id>.yaml` | 신규 생성 | 분석 완료 시 (fingerprint 불일치 확인 후) |
-| `rca_kg/cases/<case_id>.yaml` | occurrence_count++ | fingerprint 재발 매칭 시 (신규 파일 미생성) |
-| `rca_kg/cases/unresolved/<date>_..._PENDING.yaml` | 신규 생성 | 담당영역 밖 판단 시 |
+| `rca_kg/cases/<case_id>.yaml` | 신규 생성 | 분석 완료 시 |
 | `rca_kg/indexes/index.md` | 한 줄 추가 | case YAML 생성 직후 |
 | `rca_kg/skills_seed/<type>_analyzer.md` | 누적 패턴 표 추가 | 새 패턴 발견 시 (제안 또는 직접) |
 
@@ -423,21 +368,16 @@ schema v2 를 준수해줘 — 특히:
 |------|------|
 | `rca_kg/signals/<case_id>_signal.txt` | 분석 대상 |
 | `rca_kg/skills_seed/<type>_analyzer.md` | 분석 기준 checklist |
-| `rca_kg/cases/EXAMPLE_v2_rach_failure_001.yaml` | 출력 형식 참조 (confirmed 예시) |
-| `rca_kg/cases/unresolved/EXAMPLE_unresolved.yaml` | 출력 형식 참조 (unresolved 예시) |
-| `rca_kg/schema/rca_case.schema.yaml` | 필드 정의 확인 (v2) |
+| `rca_kg/cases/EXAMPLE_rach_failure_001.yaml` | 출력 형식 참조 |
+| `rca_kg/schema/rca_case.schema.yaml` | 필드 정의 확인 |
 | `rca_kg/schema/taxonomy.yaml` | confidence / root_cause 기준 |
-| `rca_kg/indexes/index.md` | 유사 케이스 선별 (500건 이후), fingerprint 매칭 |
+| `rca_kg/indexes/index.md` | 유사 케이스 선별 (500건 이후) |
 
 ### 13.5 사람이 직접 해야 하는 것
 
 ```text
-- L1SW Log Analyzer 실행 (.sdm → _l1sw.txt)
-- pre-filter 스크립트 실행 (2차 필터, PowerShell, 선택)
+- pre-filter 스크립트 실행 (PowerShell)
 - review.status 를 draft → reviewed → confirmed 로 승인
-- fingerprint.sequence_status 를 draft → confirmed 로 정규화
 - skills_seed 내 # 추정 키워드를 # 확인됨 / # 삭제 로 업데이트
 - Jira, HLD, TC 연결 정보 입력
-- unresolved PENDING 파일에 root_cause/fix/review 입력 후 통합(merge) 트리거
-  (fingerprint 매칭 → 기존 case 병합 또는 cases/ 승격)
 ```

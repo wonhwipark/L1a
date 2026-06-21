@@ -16,7 +16,7 @@ issue_types:
   tx_abnormal:
     label: TX Abnormal
     description: 상향링크 송신 이상, UL grant 이상, HARQ fail 연속
-  l2_retx:
+  l2_max_retransmission:
     label: L2 Max Retransmission
     description: RLC/HARQ 최대 재전송 한계 도달
   crash:
@@ -41,11 +41,11 @@ root_cause_categories:
     description: UL grant 미수신 또는 지연
   rlc_max_retransmission:
     label: RLC Max Retransmission
-    applies_to: [l2_retx]
+    applies_to: [l2_max_retransmission]
     description: RLC 계층 최대 재전송 횟수 초과 후 RLF 트리거
   harq_retx_exceeded:
     label: HARQ Retransmission Exceeded
-    applies_to: [l2_retx, tx_abnormal]
+    applies_to: [l2_max_retransmission, tx_abnormal]
     description: HARQ 재전송 한계 초과
   null_pointer_crash:
     label: Null Pointer Dereference
@@ -61,11 +61,11 @@ root_cause_categories:
     description: 계층간 API/IPC 파라미터 불일치
   config_parameter_mismatch:
     label: Config Parameter Mismatch
-    applies_to: [rach_failure, scg_failure, tx_abnormal, l2_retx]
+    applies_to: [rach_failure, scg_failure, tx_abnormal, l2_max_retransmission]
     description: 설정값 오류로 인한 타이머/카운터 이상
   unknown:
     label: Unknown
-    applies_to: [rach_failure, scg_failure, tx_abnormal, l2_retx, crash]
+    applies_to: [rach_failure, scg_failure, tx_abnormal, l2_max_retransmission, crash]
     description: 분석 불충분 또는 원인 미특정
 
 # ─────────────────────────────────────

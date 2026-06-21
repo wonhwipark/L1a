@@ -32,7 +32,7 @@
 | rach_failure | 0 |
 | scg_failure | 0 |
 | tx_abnormal | 0 |
-| l2_retx | 0 |
+| l2_max_retransmission | 0 |
 | crash | 0 |
 | **합계** | **0** |
 

@@ -350,7 +350,7 @@ L1a/
        │    ├─ rach_failure_analyzer.md    ← RACH 분석 checklist
        │    ├─ scg_failure_analyzer.md
        │    ├─ tx_abnormal_analyzer.md
-       │    ├─ l2_retx_analyzer.md
+       │    ├─ l2_max_retransmission_analyzer.md
        │    └─ crash_analyzer.md
        │
        ├─ indexes/
