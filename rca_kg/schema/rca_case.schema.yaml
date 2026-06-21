@@ -8,7 +8,8 @@
 #   3. raw_examples 제거 (로그 원문 인라인 금지 → signal_file+cptime_range 참조로 대체)
 #   4. fingerprint 블록 신설 (signature_set+sequence, 시간 불변 동일원인 판정키)
 #   5. occurrence_count + recent_occurrences(최근 5건) 신설 (재발 시 case 본체 미증식)
-#   6. issue_type 에서 crash 제거 (deprecated)
+#   6. issue_type 에서 crash 제거 (deprecated, L1SW 전담)
+#      v2-A: crash 전용 root_cause category(null_pointer_crash/assertion_failure)도 active enum 에서 제거
 #   7. fix 블록에 confirmed_at/confirmed_by 추가 (별도 resolution 블록 신설 안 함 — SSOT)
 #   8. related.jira 제거, recent_occurrences[].jira 로 단일화 (최근 5건만 추적, 전체이력 아님)
 #   9. unresolved case는 cases/unresolved/ 폴더에 별도 보관, root_cause/fix/review를
@@ -146,8 +147,6 @@ root_cause:
       - scheduler_grant_missing
       - rlc_max_retransmission
       - harq_retx_exceeded
-      - null_pointer_crash
-      - assertion_failure
       - api_contract_mismatch
       - config_parameter_mismatch
       - unknown

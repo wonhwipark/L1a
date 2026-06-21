@@ -1,10 +1,15 @@
 # ============================================================
 # RCA Taxonomy — rca_kg/schema/taxonomy.yaml
 # 역할: issue_type / root_cause_categories / confidence 기준 정의
+#
+# v2-A 정합성 반영 (2026-06-22):
+#   - crash 는 5.5 RCA KG 분석 대상에서 제거
+#   - crash/dump 분석은 L1SW Log Analyzer 전담
+#   - null_pointer_crash / assertion_failure 는 active root_cause_categories 에서 제거
 # ============================================================
 
 # ─────────────────────────────────────
-# Issue Type 목록
+# Issue Type 목록 — 5.5 RCA KG active 대상
 # ─────────────────────────────────────
 issue_types:
   rach_failure:
@@ -19,12 +24,9 @@ issue_types:
   l2_max_retransmission:
     label: L2 Max Retransmission
     description: RLC/HARQ 최대 재전송 한계 도달
-  crash:
-    label: Crash / Assert / Fatal
-    description: 프로세스 비정상 종료, ASSERT, FATAL, backtrace 발생
 
 # ─────────────────────────────────────
-# Root Cause Categories
+# Root Cause Categories — active issue_type 기준
 # ─────────────────────────────────────
 root_cause_categories:
   radio_access_timeout:
@@ -47,17 +49,9 @@ root_cause_categories:
     label: HARQ Retransmission Exceeded
     applies_to: [l2_max_retransmission, tx_abnormal]
     description: HARQ 재전송 한계 초과
-  null_pointer_crash:
-    label: Null Pointer Dereference
-    applies_to: [crash]
-    description: Null pointer 역참조로 인한 프로세스 종료
-  assertion_failure:
-    label: Assertion Failure
-    applies_to: [crash]
-    description: 코드 내 ASSERT 조건 실패
   api_contract_mismatch:
     label: API Contract Mismatch
-    applies_to: [rach_failure, scg_failure, tx_abnormal, crash]
+    applies_to: [rach_failure, scg_failure, tx_abnormal]
     description: 계층간 API/IPC 파라미터 불일치
   config_parameter_mismatch:
     label: Config Parameter Mismatch
@@ -65,8 +59,17 @@ root_cause_categories:
     description: 설정값 오류로 인한 타이머/카운터 이상
   unknown:
     label: Unknown
-    applies_to: [rach_failure, scg_failure, tx_abnormal, l2_max_retransmission, crash]
+    applies_to: [rach_failure, scg_failure, tx_abnormal, l2_max_retransmission]
     description: 분석 불충분 또는 원인 미특정
+
+# ─────────────────────────────────────
+# Deprecated / External 영역
+# ─────────────────────────────────────
+deprecated_external_issue_types:
+  crash:
+    label: Crash / Assert / Fatal
+    owner: L1SW Log Analyzer
+    policy: 5.5 RCA KG 에서는 신규 case 로 생성하지 않고, 필요한 경우 L1SW 산출물 경로만 참조한다.
 
 # ─────────────────────────────────────
 # Confidence 기준

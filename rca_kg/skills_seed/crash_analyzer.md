@@ -1,5 +1,8 @@
 # crash_analyzer
 
+> **DEPRECATED — do not use for 5.5 RCA KG 신규 case 생성.**  
+> Crash/dump 분석은 L1SW Log Analyzer 전담이다. 이 파일은 v1 이력 보존용이며, 필요한 경우 L1SW 산출물 경로를 참조하는 보조 자료로만 사용한다.
+
 최종 업데이트: 2026-06-19  
 누적 케이스: 0건 (실습 전)
 

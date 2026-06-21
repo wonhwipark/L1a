@@ -1,400 +1,560 @@
-# L1 로그 분석 실습 가이드
+# RCA Standalone 로그 분석 운영 가이드 — schema v2
 
-> 대상: RACH failure / SCG failure 등 L1 로그 분석  
-> 환경: Windows 11, PowerShell, VSCode + Claude Code 확장  
-> 예상 소요: 처음 설정 10분 + 분석 1건당 15~30분
-
----
-
-## 이 가이드가 하는 일
-
-대용량 로그(100MB~1GB)를 직접 AI에 붙여넣는 대신, 아래 3단계로 분석합니다.
-
-```
-① 로그 파일 (100MB~1GB)
-      ↓  [PowerShell 스크립트 실행 — 사람이 함]
-② signal 파일 (수 MB로 축소, 관련 구간만 추출)
-      ↓  [Claude Code 에 분석 요청 — 사람이 요청, Claude 가 실행]
-③ rca_kg/cases/YYYY-MM-DD_xxx_001.yaml  (분석 결과 자동 저장)
-      ↓  [사람이 검토]
-④ review.status: draft → reviewed → confirmed
-```
+> 대상: `rach_failure`, `scg_failure`, `tx_abnormal`, `l2_max_retransmission`  
+> 제외: `crash` / dump 분석은 L1SW Log Analyzer 전담  
+> 환경: Windows 11, PowerShell, VSCode + Claude Code 또는 Roo Code  
+> 기준 스키마: `rca_kg/schema/rca_case.schema.yaml` v2  
+> 현재 단계: R3 `keywords.yaml` SSOT v0.1 생성 완료. 다음 단계는 R4 L1SW manifest fragment 후보 설계
 
 ---
 
-## 준비물 체크리스트
+## 1. 이 가이드의 목적
 
-시작 전 아래를 모두 확인하세요.
+이 문서는 대용량 L1 로그를 RCA Knowledge Graph case YAML로 누적하기 위한 수동 운영 가이드다.
 
-- [ ] 분석할 로그 파일이 있다 (예: `service.log`)
-- [ ] VSCode 가 설치되어 있다
-- [ ] VSCode 에 **Claude Code 확장**이 설치되어 있다
-- [ ] PowerShell 터미널을 열 수 있다 (Windows 기본 제공)
-- [ ] 이 저장소 폴더가 열려 있다: `d:\User\whpark\L1_AI_Automation\L1a\`
+핵심 원칙은 아래와 같다.
 
----
-
-## 처음 한 번만 하는 설정
-
-### PowerShell 스크립트 실행 허용
-
-Windows 기본 설정은 PowerShell 스크립트 실행을 막습니다. 처음 한 번만 아래를 실행합니다.
-
-1. `Win + R` → `powershell` 입력 → Enter (일반 PowerShell)
-2. 아래 명령어를 붙여넣고 Enter:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-3. `Y` 입력 후 Enter
-4. 터미널 닫기
-
----
-
-## Step 1 — Pre-filter 실행 (PowerShell)
-
-### 1-1. PowerShell 터미널 열기
-
-**방법 A — VSCode 터미널 (권장):**
-1. VSCode 상단 메뉴 → `Terminal` → `New Terminal`
-2. 터미널 창이 화면 아래에 열림
-
-**방법 B — 독립 PowerShell:**
-1. `Win + R` → `powershell` → Enter
-
-### 1-2. scripts 폴더로 이동
-
-아래 명령어를 터미널에 붙여넣고 Enter:
-
-```powershell
-cd "d:\User\whpark\L1_AI_Automation\L1a\scripts"
-```
-
-현재 위치 확인 (선택):
-```powershell
-pwd
-# 결과: d:\User\whpark\L1_AI_Automation\L1a\scripts  ← 이렇게 나와야 함
-```
-
-### 1-3. 스크립트 실행
-
-**로그 파일 경로 확인 먼저:**
-- 탐색기에서 로그 파일 위치를 확인합니다
-- 경로 예시: `C:\work\logs\20260620\service.log`
-
----
-
-**RACH failure 분석 시:**
-
-```powershell
-.\rach_failure_prefilter.ps1 -InputLog "C:\work\logs\20260620\service.log" -OutputTxt "..\rca_kg\signals\2026-06-20_rach_failure_001_signal.txt"
-```
-
-> `2026-06-20_rach_failure_001` 부분을 **오늘 날짜와 순번**으로 바꾸세요.  
-> 예: 두 번째 분석이면 `_002`, 세 번째면 `_003`
-
----
-
-**SCG failure 분석 시:**
-
-```powershell
-.\scg_failure_prefilter.ps1 -InputLog "C:\work\logs\20260620\service.log" -OutputTxt "..\rca_kg\signals\2026-06-20_scg_failure_001_signal.txt"
+```text
+원본 로그 전체를 AI Context에 직접 넣지 않는다.
+L1SW Log Analyzer로 1차 축소한 _l1sw.txt를 우선 입력으로 사용한다.
+필요한 경우 issue_type별 signal 파일을 추가로 만든다.
+RCA 결과는 schema v2 case YAML로 저장한다.
+동일 원인은 fingerprint로 매칭하고 신규 case를 만들지 않는다.
 ```
 
 ---
 
-**경로 입력이 번거로울 때 — 탐색기에서 드래그:**
-1. 탐색기에서 로그 파일 선택
-2. Shift + 우클릭 → "경로로 복사"
-3. 명령어의 `"C:\work\..."` 부분에 붙여넣기
+## 2. 전체 흐름
 
-### 1-4. 실행 결과 확인
-
-정상 실행 시 아래처럼 출력됩니다:
-
+```text
+① .sdm 원본 로그
+      ↓  [사람 / 사내 L1SW]
+② L1SW Log Analyzer 실행
+      ↓
+③ _l1sw.txt 생성
+      ↓  [선택: scripts/*.ps1]
+④ issue_type별 signal 파일 생성
+      ↓  [Claude Code 또는 Roo Code]
+⑤ RCA 분석 + fingerprint draft 생성
+      ↓
+⑥ 기존 cases/와 fingerprint 매칭
+      ├─ 일치: 기존 case occurrence_count 증가 + recent_occurrences 추가
+      ├─ 불일치: 신규 fingerprint 기반 case YAML 생성
+      └─ 담당영역 밖: cases/unresolved/에 PENDING YAML 생성
+      ↓  [사람]
+⑦ review / sequence_status / root_cause 확인
+      ↓
+⑧ index.md, skills_seed, 향후 keywords.yaml 후보 업데이트
 ```
-입력: C:\work\logs\20260620\service.log
-키워드: PHY_TIMER_EXPIRY, RACH, preamble, RAR, Msg1, Msg2, Msg3, Msg4, rach_fail, RA-RNTI
-전후 context: 20 줄
-완료: ..\rca_kg\signals\2026-06-20_rach_failure_001_signal.txt (3842 줄)
+
+---
+
+## 3. Active issue_type 기준
+
+현재 5.5 RCA KG에서 신규 case 생성 대상은 아래 4개다.
+
+| issue_type | 설명 | 사용 skills_seed |
+|---|---|---|
+| `rach_failure` | RACH 절차 실패 | `rca_kg/skills_seed/rach_failure_analyzer.md` |
+| `scg_failure` | SCG 추가/설정 실패 또는 RLF | `rca_kg/skills_seed/scg_failure_analyzer.md` |
+| `tx_abnormal` | UL 송신 이상, UL grant 이상, HARQ fail 연속 | `rca_kg/skills_seed/tx_abnormal_analyzer.md` |
+| `l2_max_retransmission` | RLC/HARQ 최대 재전송 한계 도달 | `rca_kg/skills_seed/l2_max_retransmission_analyzer.md` |
+
+`crash`는 active issue_type이 아니다.
+
+```text
+crash / assert / fatal / dump 분석은 L1SW Log Analyzer 전담이다.
+5.5 RCA KG에서는 crash case YAML을 신규 생성하지 않는다.
+필요한 경우 L1SW HTML 또는 dump 분석 산출물 경로만 참조한다.
 ```
 
-**줄 수 기준:**
+---
 
-| 줄 수 | 판단 | 조치 |
-|-------|------|------|
-| 0줄 | 키워드가 로그에 없음 | 아래 "문제 발생 시" 참조 |
-| 100줄 미만 | 너무 적음 | `-Context 50` 으로 늘리기 |
-| 1,000~50,000줄 | 적당 | 그대로 진행 |
-| 100,000줄 이상 | 너무 많음 | `-Context 5` 로 줄이기 |
+## 4. 준비물 체크리스트
 
-**줄 수 조정 방법:**
+시작 전 아래를 확인한다.
+
+- [ ] 분석할 `.sdm` 원본 로그 또는 이미 생성된 `_l1sw.txt`가 있다.
+- [ ] 사내 L1SW Log Analyzer를 실행할 수 있다.
+- [ ] VSCode에서 이 `RCA_standalone` 폴더를 열 수 있다.
+- [ ] Claude Code 또는 Roo Code가 로컬 파일을 읽고 쓸 수 있다.
+- [ ] PowerShell 터미널을 열 수 있다.
+- [ ] 아래 기준 파일이 존재한다.
+
+```text
+HANDOFF.md
+rca_kg/schema/rca_case.schema.yaml
+rca_kg/schema/taxonomy.yaml
+rca_kg/indexes/index.md
+rca_kg/cases/EXAMPLE_v2_rach_failure_001.yaml
+rca_kg/cases/unresolved/EXAMPLE_unresolved.yaml
+```
+
+---
+
+## 5. Step 1 — L1SW로 1차 축소본 생성
+
+이 단계는 사내 L1SW Log Analyzer 환경에서 수행한다.
+
+```text
+.sdm 원본
+  → L1SW parse.ps1
+  → _l1sw.txt
+```
+
+중요 기준:
+
+```text
+_l1sw.txt에는 line number가 없다고 가정한다.
+위치 식별은 line_range가 아니라 cptime_range를 사용한다.
+_l1sw.txt는 삭제하지 않고 보존한다.
+RCA case YAML에는 로그 본문을 복사하지 않고 signal_file 경로와 cptime_range만 기록한다.
+```
+
+---
+
+## 6. Step 2 — 선택 사항: signal 파일 생성
+
+L1SW가 만든 `_l1sw.txt`가 너무 크면 issue_type별 pre-filter 스크립트로 signal 파일을 만든다.
+
+현재 `scripts/*.ps1`은 아직 `keywords.yaml`에서 자동 생성되지 않는 임시 수동 도구다.
+키워드 SSOT는 `rca_kg/keywords.yaml`이며, 스크립트 내부 `$keywords` 블록은 R4 이후 동기화 대상이다.
+
+### 6.1 PowerShell 위치 이동
+
+VSCode 터미널 또는 PowerShell에서 `RCA_standalone/scripts` 폴더로 이동한다.
+
 ```powershell
-# context 를 50줄로 늘리기 (기본값 20)
-.\rach_failure_prefilter.ps1 -InputLog "C:\..." -OutputTxt "..\rca_kg\signals\2026-06-20_rach_failure_001_signal.txt" -Context 50
-
-# context 를 5줄로 줄이기
-.\rach_failure_prefilter.ps1 -InputLog "C:\..." -OutputTxt "..\rca_kg\signals\2026-06-20_rach_failure_001_signal.txt" -Context 5
+cd "<RCA_standalone_경로>\scripts"
 ```
 
-### 1-5. signal 파일 생성 확인
+예시:
 
 ```powershell
-# signal 파일이 생성됐는지 확인
+cd "D:\work\RCA_standalone\scripts"
+```
+
+### 6.2 RACH failure signal 생성
+
+입력은 원본 `.sdm`이 아니라 L1SW가 만든 `_l1sw.txt`를 권장한다.
+
+```powershell
+.\rach_failure_prefilter.ps1 `
+  -InputLog "D:\work\logs\dump001_l1sw.txt" `
+  -OutputTxt "..\rca_kg\signals\20260622_rach_failure_dump001_signal.txt" `
+  -Context 20
+```
+
+### 6.3 SCG failure signal 생성
+
+```powershell
+.\scg_failure_prefilter.ps1 `
+  -InputLog "D:\work\logs\dump001_l1sw.txt" `
+  -OutputTxt "..\rca_kg\signals\20260622_scg_failure_dump001_signal.txt" `
+  -Context 20
+```
+
+### 6.4 signal 파일명 규칙
+
+signal 파일은 임시 분석 입력이므로 날짜 기반 이름을 사용할 수 있다.
+단, case_id는 날짜 기반으로 만들지 않는다.
+
+권장 signal 파일명:
+
+```text
+rca_kg/signals/<YYYYMMDD>_<issue_type>_<source-slug>_signal.txt
+```
+
+예시:
+
+```text
+rca_kg/signals/20260622_rach_failure_dump001_signal.txt
+rca_kg/signals/20260622_scg_failure_dump007_signal.txt
+```
+
+case YAML의 정식 `case_id`는 분석 후 fingerprint 기반으로 생성한다.
+
+```text
+<fingerprint-slug>_<issue_type>_<3-digit-seq>
+```
+
+예시:
+
+```text
+rach_msg3timeout_rach_failure_001
+scg_beamfail_scg_failure_001
+```
+
+---
+
+## 7. Step 3 — signal 파일 확인
+
+PowerShell에서 signal 파일이 생성됐는지 확인한다.
+
+```powershell
 ls ..\rca_kg\signals\
-
-# 첫 30줄 미리보기
-Get-Content ..\rca_kg\signals\2026-06-20_rach_failure_001_signal.txt -TotalCount 30
 ```
+
+첫 부분을 확인한다.
+
+```powershell
+Get-Content "..\rca_kg\signals\20260622_rach_failure_dump001_signal.txt" -TotalCount 30
+```
+
+줄 수를 확인한다.
+
+```powershell
+(Get-Content "..\rca_kg\signals\20260622_rach_failure_dump001_signal.txt" | Measure-Object -Line).Lines
+```
+
+판단 기준:
+
+| signal 줄 수 | 판단 | 조치 |
+|---:|---|---|
+| 0 | 키워드 미매칭 | 스크립트 키워드 후보를 실제 로그 기준으로 점검 |
+| 1~100 | 너무 적을 수 있음 | `-Context 50`으로 재실행 검토 |
+| 1,000~50,000 | 1차 분석 가능 | Claude Code 분석 진행 |
+| 100,000 이상 | 너무 클 수 있음 | `-Context 5` 또는 L1SW time window 사용 검토 |
 
 ---
 
-## Step 2 — Claude Code 에 분석 요청
+## 8. Step 4 — Claude Code / Roo Code 분석 요청
 
-### 2-1. Claude Code 채팅창 열기
+아래 프롬프트를 사용한다. `issue_type`, signal 파일명, 저장 파일명 후보만 상황에 맞게 바꾼다.
 
-**VSCode Claude Code 확장 사용 시:**
-1. VSCode 좌측 사이드바에서 Claude 아이콘 클릭
-2. 채팅창이 열림
+### 8.1 RACH failure 분석 요청 프롬프트
 
-**Claude Code CLI 사용 시:**
-1. VSCode 터미널에서 `claude` 입력 → Enter
-
-### 2-2. 분석 요청 프롬프트 (복사해서 사용)
-
-아래 텍스트를 복사 → Claude Code 채팅창에 붙여넣기 → 날짜/순번 수정 후 전송:
-
-```
-@rca_kg/signals/2026-06-20_rach_failure_001_signal.txt
+```text
+@HANDOFF.md
+@rca_kg/schema/rca_case.schema.yaml
+@rca_kg/schema/taxonomy.yaml
+@rca_kg/indexes/index.md
+@rca_kg/cases/EXAMPLE_v2_rach_failure_001.yaml
+@rca_kg/cases/unresolved/EXAMPLE_unresolved.yaml
 @rca_kg/skills_seed/rach_failure_analyzer.md
-@rca_kg/cases/EXAMPLE_rach_failure_001.yaml
+@rca_kg/signals/20260622_rach_failure_dump001_signal.txt
+
+위 signal 파일을 schema v2 기준으로 분석해줘.
+
+issue_type은 rach_failure 후보로 시작하되, 로그 근거가 다르면 이유를 설명해줘.
+분석 기준은 rca_kg/skills_seed/rach_failure_analyzer.md 의 checklist를 따른다.
+
+반드시 지켜야 할 규칙:
+1. case_id는 날짜 기반으로 만들지 말고 fingerprint 기반으로 만들어줘.
+   형식: <fingerprint-slug>_<issue_type>_<3-digit-seq>
+2. fingerprint 블록을 반드시 생성해줘.
+   - signature_set: 등장한 signature ID 목록
+   - sequence: cptime 기준 상대 순서
+   - sequence_status: 초안이면 draft
+3. line_range를 사용하지 말고 cptime_range를 사용해줘.
+4. raw_examples에 로그 원문을 인라인 저장하지 마.
+5. related.jira를 만들지 말고, Jira가 있으면 recent_occurrences[].jira에 기록해줘.
+6. 신규 case 생성 전 rca_kg/cases/ 아래 기존 case와 fingerprint(signature_set + sequence)를 비교해줘.
+7. fingerprint가 기존 case와 일치하면 신규 YAML을 만들지 말고 기존 case의 occurrence_count, recent_occurrences, last_seen만 갱신해줘.
+8. fingerprint가 일치하지 않으면 rca_kg/cases/<fingerprint-slug>_rach_failure_<seq>.yaml 로 신규 생성해줘.
+9. 담당영역 밖 문제로 판단되면 rca_kg/cases/unresolved/<YYYYMMDD>_rach_failure_<seq>_PENDING.yaml 로 생성하고 root_cause/fix/review는 null로 둬.
+10. crash/dump 분석은 5.5 RCA KG 대상이 아니므로 crash case를 생성하지 마.
+
+저장 후 rca_kg/indexes/index.md를 fingerprint 기준으로 업데이트해줘.
+변경 내용 요약을 답변에 포함해줘.
+```
+
+### 8.2 SCG failure 분석 요청 프롬프트
+
+```text
+@HANDOFF.md
 @rca_kg/schema/rca_case.schema.yaml
-
-위 signal 파일을 분석해줘.
-분석 기준은 rach_failure_analyzer.md 의 Analysis Checklist 를 모두 확인해줘.
-결과는 EXAMPLE_rach_failure_001.yaml 형식에 맞춰
-rca_kg/cases/2026-06-20_rach_failure_001.yaml 로 저장해줘.
-저장 후 rca_kg/indexes/index.md Case 목록 표에 한 줄 추가해줘.
-```
-
-> `2026-06-20_rach_failure_001` 부분을 Step 1 에서 쓴 날짜/순번과 동일하게 맞추세요.
-
-**SCG failure 분석 시 (복사해서 사용):**
-
-```
-@rca_kg/signals/2026-06-20_scg_failure_001_signal.txt
+@rca_kg/schema/taxonomy.yaml
+@rca_kg/indexes/index.md
+@rca_kg/cases/EXAMPLE_v2_rach_failure_001.yaml
+@rca_kg/cases/unresolved/EXAMPLE_unresolved.yaml
 @rca_kg/skills_seed/scg_failure_analyzer.md
-@rca_kg/cases/EXAMPLE_rach_failure_001.yaml
-@rca_kg/schema/rca_case.schema.yaml
+@rca_kg/signals/20260622_scg_failure_dump001_signal.txt
 
-위 signal 파일을 분석해줘.
-분석 기준은 scg_failure_analyzer.md 의 Analysis Checklist 를 모두 확인해줘.
-결과는 EXAMPLE yaml 형식에 맞춰
-rca_kg/cases/2026-06-20_scg_failure_001.yaml 로 저장해줘.
-저장 후 rca_kg/indexes/index.md Case 목록 표에 한 줄 추가해줘.
-```
+위 signal 파일을 schema v2 기준으로 분석해줘.
 
-### 2-3. Claude Code 가 자동으로 하는 것
+issue_type은 scg_failure 후보로 시작하되, 로그 근거가 다르면 이유를 설명해줘.
+분석 기준은 rca_kg/skills_seed/scg_failure_analyzer.md 의 checklist를 따른다.
 
-분석 요청을 받으면 Claude Code 가 자동으로:
+반드시 지켜야 할 규칙:
+1. case_id는 날짜 기반으로 만들지 말고 fingerprint 기반으로 만들어줘.
+2. fingerprint.signature_set과 fingerprint.sequence를 반드시 생성해줘.
+3. sequence는 cptime 기준 상대 순서로 작성해줘.
+4. line_range, raw_examples, related.jira는 사용하지 마.
+5. Jira 참조는 recent_occurrences[].jira에만 기록해줘.
+6. 기존 cases/와 fingerprint 매칭 후 재발이면 occurrence_count만 갱신해줘.
+7. 신규 원인이면 cases/에 신규 YAML을 생성해줘.
+8. 담당영역 밖이면 cases/unresolved/에 PENDING YAML을 생성해줘.
+9. crash/dump case는 생성하지 마.
 
-1. signal 파일 읽기
-2. skills_seed checklist 기준으로 분석
-3. `rca_kg/cases/2026-06-20_rach_failure_001.yaml` 파일 생성
-4. `rca_kg/indexes/index.md` 에 한 줄 추가
-
-> 사람이 직접 파일을 만들거나 복사할 필요가 없습니다.
-
-### 2-4. 분석 중 추가로 물어볼 수 있는 것
-
-분석 결과를 보고 더 자세히 알고 싶으면 후속 질문 가능:
-
-```
-RAR timeout 발생 횟수를 세어줘
-```
-```
-동일 UE 기준 RACH 재시도 전체 타임라인을 표로 정리해줘
-```
-```
-confidence 를 medium 으로 설정한 근거를 설명해줘
-```
-```
-Root Cause Category 를 radio_access_timeout 으로 특정한 이유는?
+저장 후 rca_kg/indexes/index.md를 fingerprint 기준으로 업데이트해줘.
+변경 내용 요약을 답변에 포함해줘.
 ```
 
 ---
 
-## Step 3 — 결과 검토 및 승인
+## 9. Step 5 — 생성된 case YAML 검토
 
-### 3-1. 생성된 YAML 파일 열기
+Claude Code 또는 Roo Code가 생성한 YAML을 사람이 검토한다.
 
-VSCode 탐색기에서:
+검토 파일 위치:
+
+```text
+rca_kg/cases/<fingerprint-slug>_<issue_type>_<seq>.yaml
 ```
-rca_kg/
-  └─ cases/
-       └─ 2026-06-20_rach_failure_001.yaml  ← 이 파일 클릭
+
+또는 담당영역 밖 이관이면:
+
+```text
+rca_kg/cases/unresolved/<YYYYMMDD>_<issue_type>_<seq>_PENDING.yaml
 ```
 
-### 3-2. 검토 항목 체크리스트
+### 9.1 필수 검토 항목
 
 | 항목 | 확인 내용 |
-|------|----------|
-| `symptom.occurred_at` | 발생 시각이 맞는지 |
-| `root_cause.category` | `taxonomy.yaml` 의 카테고리 중 하나인지 |
-| `root_cause.confidence` | low/medium/high/confirmed 기준 적절한지 |
-| `log_patterns.raw_examples` | 실제 로그 원문과 일치하는지 |
-| `log_patterns.line_range` | 원본 로그 라인 번호가 맞는지 |
-| `prevent_rule` | 실제로 적용 가능한 방어 규칙인지 |
+|---|---|
+| `issue_type` | taxonomy의 active issue_type 중 하나인지 |
+| `fingerprint.signature_set` | 실제 signal에 등장한 signature만 포함했는지 |
+| `fingerprint.sequence` | cptime 기준 상대 순서가 맞는지 |
+| `fingerprint.sequence_status` | 자동 초안이면 draft, 사람이 확인했으면 confirmed인지 |
+| `log_patterns[].signature` | signature ID가 fingerprint와 같은 네임스페이스인지 |
+| `log_patterns[].cptime_range` | line_range가 아니라 cptime_range인지 |
+| `root_cause.category` | taxonomy의 active root_cause_categories 중 하나인지 |
+| `root_cause.confidence` | low / medium / high / confirmed 기준이 과하지 않은지 |
+| `recent_occurrences[].jira` | Jira 참조가 이 위치에만 있는지 |
+| `related` | hld / tc / api만 있는지 |
+| `fix` | 확정 전이면 과하게 단정하지 않았는지 |
+| `prevent_rule` | 실제 TC나 방어 규칙 후보로 쓸 수 있는지 |
+| `review.status` | draft / reviewed / confirmed / rejected 중 하나인지 |
 
-### 3-3. review.status 업데이트
+### 9.2 사용 금지 필드
 
-검토 완료 후 YAML 파일에서:
+schema v2 기준으로 아래 필드는 신규 case에 넣지 않는다.
 
-```yaml
-review:
-  status: draft      # ← 이 부분을 reviewed 로 변경
-  reviewer: ""       # ← 이름 입력
-  reviewed_at: ""    # ← 날짜 입력 (예: "2026-06-20T10:00:00+09:00")
+```text
+symptom.occurred_at
+log_patterns.raw_examples
+log_patterns.line_range
+log_patterns.time_range
+related.jira
+issue_type: crash
 ```
 
-변경 후:
+---
+
+## 10. Step 6 — review 상태 업데이트
+
+초안 상태 예시:
 
 ```yaml
+status: analyzed
+fingerprint:
+  sequence_status: draft
+review:
+  status: draft
+  reviewer: ""
+  reviewed_at: null
+  comment: ""
+```
+
+사람이 검토한 뒤:
+
+```yaml
+status: reviewed
+fingerprint:
+  sequence_status: confirmed
 review:
   status: reviewed
-  reviewer: "whpark"
-  reviewed_at: "2026-06-20T10:00:00+09:00"
+  reviewer: whpark
+  reviewed_at: 2026-06-22
+  comment: "fingerprint sequence 확인 완료"
 ```
 
-### 3-4. Jira / HLD / TC 연결 (있는 경우)
+Root Cause와 Fix까지 확정되면:
 
 ```yaml
-related:
-  jira:
-    - "L1-1234"      # ← 관련 Jira 티켓
-  hld: []
-  tc: []
+status: confirmed
+root_cause:
+  confidence: confirmed
+fix:
+  confirmed_at: 2026-06-22
+  confirmed_by: whpark
+review:
+  status: confirmed
 ```
 
 ---
 
-## Step 4 — skills_seed 업데이트 (선택, 새 패턴 발견 시)
+## 11. Step 7 — unresolved 처리
 
-분석 중 기존 checklist 에 없던 새 패턴을 발견했으면 Claude Code 에 요청:
+`unresolved`는 원인 불명이 아니다.
 
-```
-rach_failure_analyzer.md 의 누적 패턴 표에 오늘 케이스를 한 줄 추가해줘.
-case_id: 2026-06-20_rach_failure_001
-root_cause: radio_access_timeout
-confidence: medium
+```text
+unresolved = 담당영역 밖으로 판단되어 타 담당자에게 이관해야 하는 상태
 ```
 
-> 10건 이상 쌓이면 공통 패턴이 보이기 시작합니다. 그 때 checklist 를 보강하세요.
+원인이 불확실하지만 담당영역 안이면 아래처럼 둔다.
+
+```yaml
+status: analyzed
+root_cause:
+  confidence: low
+```
+
+담당영역 밖이면 아래처럼 만든다.
+
+```yaml
+issue_type: scg_failure
+status: unresolved
+handoff:
+  reason: "RF 캘리브레이션 영역 문제로 추정되어 본 담당 범위 밖"
+  suspected_domain: "RF_Calibration"
+  suspected_owner: "RF팀"
+  handed_off_at: 2026-06-22
+root_cause: null
+fix: null
+review: null
+```
+
+파일 위치:
+
+```text
+rca_kg/cases/unresolved/<YYYYMMDD>_<issue_type>_<seq>_PENDING.yaml
+```
+
+이관받은 담당자가 root_cause / fix / review를 채운 뒤에는 fingerprint 기준으로 기존 cases와 다시 매칭한다.
+
+```text
+fingerprint 일치: 기존 case에 병합하고 PENDING 파일 폐기
+fingerprint 불일치: 정식 case_id 부여 후 cases/로 승격
+```
 
 ---
 
-## 자주 쓰는 PowerShell 명령 모음
+## 12. Step 8 — index.md 업데이트
 
-```powershell
-# signal 파일 줄 수 확인
-(Get-Content ..\rca_kg\signals\2026-06-20_rach_failure_001_signal.txt | Measure-Object -Line).Lines
+case 생성 또는 갱신 후 `rca_kg/indexes/index.md`를 업데이트한다.
 
-# signal 파일에서 특정 키워드가 있는 줄만 다시 보기
-Select-String -Path "..\rca_kg\signals\2026-06-20_rach_failure_001_signal.txt" -Pattern "PHY_TIMER_EXPIRY"
+index 기준 필드:
 
-# signal 파일 처음 50줄 확인
-Get-Content "..\rca_kg\signals\2026-06-20_rach_failure_001_signal.txt" -TotalCount 50
+```text
+case_id
+issue_type
+signature_set
+sequence
+occurrence_count
+first_seen
+last_seen
+status
+```
 
-# cases 폴더 목록 확인
-ls ..\rca_kg\cases\
+동일 fingerprint 재발이면 신규 행을 추가하지 않고 기존 행을 갱신한다.
 
-# 오늘 생성된 case 파일 확인
-ls ..\rca_kg\cases\ | Where-Object { $_.LastWriteTime -gt (Get-Date).Date }
+```text
+occurrence_count 증가
+last_seen 갱신
+status 필요 시 갱신
 ```
 
 ---
 
-## 문제 발생 시
+## 13. Step 9 — skills_seed 업데이트 후보
 
-| 증상 | 가능한 원인 | 해결 방법 |
-|------|------------|-----------|
-| `입력 파일 없음` 오류 | 로그 파일 경로 오타 | 경로를 `"..."` 따옴표로 감싸기, 탐색기에서 경로 복사 사용 |
-| signal 파일이 0줄 | 키워드가 로그에 없음 | ps1 파일의 `$keywords` 에 실제 로그 키워드 추가 후 재실행 |
-| signal 파일이 너무 큼 | Context 가 너무 넓음 | `-Context 5` 로 줄이기 |
-| signal 파일이 너무 적음 | Context 가 너무 좁음 | `-Context 50` 으로 늘리기 |
-| 스크립트 실행 안 됨 | PowerShell 실행 정책 | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` 실행 |
-| `@파일경로` 가 Claude 에 안 읽힘 | 경로 오타 또는 파일 미생성 | `ls ..\rca_kg\signals\` 로 파일 존재 확인 |
-| Claude 가 YAML 저장 안 함 | 권한 또는 경로 문제 | Claude Code 에 "파일 쓰기를 허용해줘" 권한 승인 클릭 |
+새로운 분석 패턴이 발견되면 바로 정식 반영하지 말고 후보로 기록한다.
+
+예시 요청:
+
+```text
+이번 case에서 새로 확인된 RACH failure 분석 체크포인트를
+rca_kg/skills_seed/rach_failure_analyzer.md 하단에 candidate로 추가해줘.
+확정 키워드와 추정 키워드를 구분해서 표시해줘.
+```
+
+`keywords.yaml`이 signature SSOT다.
+R4 이후에는 `keywords.yaml`을 기준으로 skills_seed, ps1 키워드, L1SW manifest fragment를 동기화한다.
 
 ---
 
-## 파일 역할 한눈에 보기
+## 14. 파일 역할 한눈에 보기
 
-```
-L1a/
+```text
+RCA_standalone/
+  ├─ HANDOFF.md
+  │    └─ 새 세션 시작 시 가장 먼저 읽는 문서
+  │
   ├─ scripts/
-  │    ├─ README.md                        ← 이 파일 (실습 가이드)
-  │    ├─ rach_failure_prefilter.ps1       ← RACH 로그 추출 스크립트
-  │    └─ scg_failure_prefilter.ps1        ← SCG 로그 추출 스크립트
+  │    ├─ README.md
+  │    │    └─ 이 파일. schema v2 기준 운영 가이드
+  │    ├─ rach_failure_prefilter.ps1
+  │    │    └─ R3 keywords.yaml 전까지 사용하는 임시 RACH signal 추출 스크립트
+  │    └─ scg_failure_prefilter.ps1
+  │         └─ R3 keywords.yaml 전까지 사용하는 임시 SCG signal 추출 스크립트
   │
   └─ rca_kg/
-       ├─ signals/                         ← ① pre-filter 출력 (사람이 폴더 지정)
-       │    └─ YYYY-MM-DD_xxx_001_signal.txt
+       ├─ signals/
+       │    └─ L1SW _l1sw.txt 또는 issue_type별 signal 파일 저장 위치
        │
-       ├─ cases/                           ← ③ RCA 결과 YAML (Claude 가 자동 생성)
-       │    ├─ EXAMPLE_rach_failure_001.yaml   (작성 형식 참고용 템플릿)
-       │    └─ YYYY-MM-DD_xxx_001.yaml
+       ├─ cases/
+       │    ├─ EXAMPLE_v2_rach_failure_001.yaml
+       │    │    └─ confirmed case 예시
+       │    ├─ <fingerprint-slug>_<issue_type>_<seq>.yaml
+       │    │    └─ 정식 RCA case
+       │    └─ unresolved/
+       │         └─ <YYYYMMDD>_<issue_type>_<seq>_PENDING.yaml
+       │              └─ 담당영역 밖 이관 대기 case
        │
-       ├─ skills_seed/                     ← 분석 기준 가이드 (반복 시 업데이트)
-       │    ├─ rach_failure_analyzer.md    ← RACH 분석 checklist
+       ├─ skills_seed/
+       │    ├─ rach_failure_analyzer.md
        │    ├─ scg_failure_analyzer.md
        │    ├─ tx_abnormal_analyzer.md
        │    ├─ l2_max_retransmission_analyzer.md
        │    └─ crash_analyzer.md
+       │         └─ deprecated. 신규 5.5 case 생성에 사용하지 않음
        │
        ├─ indexes/
-       │    └─ index.md                    ← ③ 전체 케이스 목록 (Claude 가 자동 추가)
+       │    └─ index.md
+       │         └─ fingerprint 기준 case 검색 index
        │
        └─ schema/
-            ├─ rca_case.schema.yaml        ← YAML 필드 정의 (참고용)
-            └─ taxonomy.yaml               ← issue_type / confidence 기준 (참고용)
+            ├─ rca_case.schema.yaml
+            │    └─ case YAML 필드 정의
+            └─ taxonomy.yaml
+                 └─ active issue_type / root_cause / confidence 기준
 ```
-
-**사람이 직접 하는 것:**
-- pre-filter 스크립트 실행 (Step 1)
-- Claude Code 에 분석 요청 (Step 2)
-- 결과 검토 및 `review.status` 업데이트 (Step 3)
-- Jira/HLD/TC 연결 정보 입력
-- 키워드가 틀렸을 때 ps1 파일 수정
-
-**Claude Code 가 자동으로 하는 것:**
-- signal 파일 읽고 분석
-- `rca_kg/cases/<case_id>.yaml` 생성
-- `rca_kg/indexes/index.md` 한 줄 추가
-- skills_seed 업데이트 후보 제안
 
 ---
 
-## 참고 — keywords 수정 방법
+## 15. 문제 발생 시
 
-실제 로그를 보고 키워드가 맞지 않으면 ps1 파일의 `$keywords` 블록을 수정합니다.
+| 증상 | 가능한 원인 | 조치 |
+|---|---|---|
+| signal 파일이 0줄 | 키워드 후보가 실제 로그와 맞지 않음 | `_l1sw.txt`에서 실제 표현을 검색하고 ps1 키워드 후보를 보정 |
+| signal 파일이 너무 큼 | context가 너무 넓음 | `-Context 5`로 줄이거나 L1SW time window 사용 |
+| Claude가 날짜 기반 case_id를 만들려고 함 | v1 가이드를 참조했거나 프롬프트가 불명확함 | schema v2와 EXAMPLE_v2 파일을 함께 첨부하고 fingerprint 기반 case_id를 재지시 |
+| Claude가 line_range를 사용함 | v1 잔재 또는 일반 로그 분석 습관 | cptime_range만 사용하라고 재지시 |
+| Claude가 raw_examples를 넣음 | 로그 원문 보존 원칙 미반영 | raw_examples 제거, signal_file + cptime_range 포인터로 대체 |
+| Claude가 related.jira를 만듦 | v1 스키마 잔재 | Jira는 recent_occurrences[].jira로 이동 |
+| crash case를 만들려고 함 | deprecated 파일 또는 과거 delta 참조 | crash는 L1SW 전담이며 5.5 active issue_type이 아니라고 재지시 |
+| fingerprint가 과하게 길어짐 | noise signature가 포함됨 | 핵심 signature만 남기고 sequence_status를 draft로 유지한 뒤 사람이 정규화 |
 
-```powershell
-# VSCode 에서 파일 열기
-code .\rach_failure_prefilter.ps1
+---
+
+## 16. 다음 단계
+
+이 README는 schema v2 기준으로 동기화된 운영 가이드다.
+
+다음 단계는 R4다.
+
+```text
+R4. L1SW manifest fragment 후보 설계
 ```
 
-파일 안에서 수정할 위치:
+R4에서 정리할 내용:
 
-```powershell
-$keywords = @(
-    "PHY_TIMER_EXPIRY",     # 확인됨  ← 실제 로그에서 확인된 키워드
-    "RACH",                 # 추정    ← 아직 확인 안 된 키워드
-    "preamble",             # 추정
-    ...
-)
+```text
+keywords.yaml에서 use_for.l1sw_manifest_fragment=true인 signature 추출
+issue_type별 fragment JSON 후보 생성
+너무 넓은 context keyword 제외
+사내 L1SW manifest 구조와 충돌 여부 확인
+실 로그 검증 전까지 fragment는 candidate로 유지
 ```
-
-- `# 확인됨`: 실제 로그에서 등장을 확인한 키워드
-- `# 추정`: 아직 확인하지 못한 키워드 — 확인 후 `# 확인됨` 또는 삭제

@@ -1,6 +1,7 @@
 # RCA Knowledge Graph — Case Index
 
-> Phase 1 index: 수동 관리. 10건 이후 by_issue_type.yaml, by_root_cause.yaml 추가 예정.
+> Phase 1 index: 수동 관리. v2-A 기준으로 fingerprint 검색과 active issue_type만 사용한다.
+> crash/dump 분석은 L1SW Log Analyzer 전담이므로 이 index의 active issue_type 통계에서 제외한다.
 
 ---
 
@@ -8,20 +9,24 @@
 
 새 케이스 분석 완료 시 아래 표에 한 줄 추가한다.
 
-```
-| YYYY-MM-DD | case_id | issue_type | root_cause category | confidence | status |
+```text
+| case_id | issue_type | signature_set | sequence | occurrence_count | first_seen | last_seen | status |
 ```
 
-유사 케이스 검색 시 이 표에서 issue_type / root_cause 로 먼저 필터링한 뒤,
-후보 case YAML 2~3개만 Claude/Roo 에 넣는다.
+유사 케이스 검색 시 `issue_type`으로 1차 필터링한 뒤,
+`signature_set + sequence` fingerprint가 일치하는지 확인한다.
+
+- fingerprint 일치: 신규 case를 만들지 않고 기존 case의 `occurrence_count++`, `recent_occurrences` 추가
+- fingerprint 불일치: 신규 `case_id`를 부여하고 `cases/`에 YAML 생성
+- 담당영역 밖 이관: `cases/unresolved/`에 PENDING 파일 생성
 
 ---
 
 ## Case 목록
 
-| 날짜 | case_id | issue_type | root_cause | confidence | status |
-|------|---------|------------|------------|------------|--------|
-| -    | EXAMPLE_rach_failure_001 (템플릿) | rach_failure | radio_access_timeout | medium | draft |
+| case_id | issue_type | signature_set | sequence | occurrence_count | first_seen | last_seen | status |
+|---------|------------|---------------|----------|------------------|------------|-----------|--------|
+| EXAMPLE_v2_rach_failure_001 | rach_failure | Msg1, Msg2, Msg3, PHY_TIMER_EXPIRY | Msg1→Msg2→Msg3→(PHY_TIMER_EXPIRY) | 7 | 2026-05-30 | 2026-06-21 | confirmed |
 
 ---
 
@@ -33,21 +38,29 @@
 | scg_failure | 0 |
 | tx_abnormal | 0 |
 | l2_max_retransmission | 0 |
-| crash | 0 |
 | **합계** | **0** |
+
+---
+
+## Deprecated / External
+
+| 항목 | 처리 |
+|------|------|
+| crash | 5.5 RCA KG 신규 case 생성 대상 아님. L1SW Log Analyzer 산출물을 경로로만 참조 |
 
 ---
 
 ## 디렉토리 구조
 
-```
+```text
 rca_kg/
-  ├─ cases/           ← 분석 1건당 YAML 1개
-  ├─ signals/         ← pre-filter 출력 signal 파일
-  ├─ skills_seed/     ← 문제 유형별 분석 가이드 (반복 분석 시 업데이트)
+  ├─ cases/           ← 분석 1건당 YAML 1개. 단, 동일 fingerprint 재발은 기존 case 갱신
+  │   └─ unresolved/  ← 담당영역 밖 이관 PENDING 파일
+  ├─ signals/         ← L1SW 출력 또는 issue_type signal 파일
+  ├─ skills_seed/     ← 문제 유형별 분석 가이드. crash_analyzer.md 는 deprecated
   ├─ indexes/
-  │    └─ index.md    ← 이 파일 (Phase 1 전체 인덱스)
+  │    └─ index.md    ← 이 파일
   └─ schema/
        ├─ rca_case.schema.yaml   ← 필드 정의
-       └─ taxonomy.yaml          ← issue_type / root_cause / confidence 기준
+       └─ taxonomy.yaml          ← active issue_type / root_cause / confidence 기준
 ```
