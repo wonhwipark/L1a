@@ -70,12 +70,12 @@ handoff:
 fingerprint:
   signature_set:
     type: "list[string]"
-    note: "등장한 시그니처 집합 (keywords.yaml 의 signature ID 참조, 순서 무관)"
-    example: ["Msg1", "Msg2", "Msg3", "PHY_TIMER_EXPIRY"]
+    note: "등장한 시그니처 집합 (keywords.yaml 의 signature ID 참조, 순서 무관). alias(Msg1 등) 아닌 ID(RACH_MSG1 등) 표기"
+    example: ["RACH_MSG1", "RACH_MSG2", "RACH_MSG3", "RACH_PHY_TIMER_EXPIRY"]
   sequence:
     type: string
-    note: "cptime 기준 정렬한 시그니처 상대 순서. 절대시각 미포함 → 시험간 비교 가능"
-    example: "Msg1→Msg2→Msg3→(PHY_TIMER_EXPIRY)"
+    note: "cptime 기준 정렬한 시그니처 상대 순서. 절대시각 미포함 → 시험간 비교 가능. signature_set 과 동일하게 keywords.yaml ID 표기"
+    example: "RACH_MSG1→RACH_MSG2→RACH_MSG3→(RACH_PHY_TIMER_EXPIRY)"
   sequence_status:
     type: enum
     values:

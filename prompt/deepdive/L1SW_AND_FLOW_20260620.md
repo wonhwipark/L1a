@@ -1,7 +1,7 @@
 # L1SW Log Analyzer 동작 정리 + L1SW → 5.5 전체 Flow
 
 작성일: 2026-06-20 (온사이트 확인 A~F 기반, Option A 확정)
-근거 문서: `L1SW_CHECKLIST_OBJECTIVE_20260620.md`, `L1SW_LOG_ANALYZER_COMPARISON.md`
+근거 문서: `L1SW_CHECKLIST_OBJECTIVE_v2.md`, `L1SW_LOG_ANALYZER_COMPARISON.md`
 
 ---
 

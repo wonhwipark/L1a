@@ -175,21 +175,54 @@ signal 파일만 만들고, case YAML 은 아직 만들지 마 (P4에서 한다)
 @rca_kg/schema/taxonomy.yaml
 @rca_kg/keywords.yaml
 @rca_kg/indexes/index.md
+@prompt/deepdive/RCA_ANALYSIS_METHODOLOGY.md
 @rca_kg/cases/EXAMPLE_v2_rach_failure_001.yaml
 @rca_kg/cases/unresolved/EXAMPLE_unresolved.yaml
 @rca_kg/skills_seed/<issue_type>_analyzer.md
 @rca_kg/signals/<P3에서 만든 signal 파일>
 
-위 signal 을 schema v2 기준으로 분석해서 RCA case 를 생성해줘.
+위 signal 을 분석해서 RCA case 를 생성해줘.
 이번 issue_type 후보: <issue_type>  (로그 근거가 다르면 다른 issue_type 으로 바꾸고 이유를 설명)
 
+═══════════════════════════════════════════════════════════
+PART A — 원인분석 (RCA_ANALYSIS_METHODOLOGY.md 의 7단계를 그대로 수행)
+═══════════════════════════════════════════════════════════
+case YAML 을 채우기 전에, 먼저 아래 추론을 수행하고 그 과정을 보여줘.
+한 줄씩 결론만 적되, 각 단계의 근거 cptime/로그줄을 함께 제시해줘.
+
+ S1 증상 고정: 가장 이른 failure_event signature 와 그 첫 등장 cptime.
+ S2 시간창   : anchor 기준 앞(진입)·뒤(fallback)로 잡은 cptime_range 후보.
+ S3 정상경로 대조: 해당 issue_type 정상 시퀀스와 겹쳐 "최초 이탈 지점" 특정.
+ S4 가설 후보: skills_seed 의 Root Cause Categories 에서 최초 이탈과 양립하는
+              category 를 2~4개 나열 (1개로 즉단 금지 — 확증편향 방지).
+ S5 가설 가르기: 각 가설을 참/거짓으로 가르는 "결정적 단서" 1개씩 정하고
+              그 signature 만 추가 grep 해서 채택/기각. (전체 정독 금지)
+ S6 단말 vs 환경: 동일 cell 타 UE 성공 여부 등으로 도메인 분리.
+              → 환경/RF 측이면 PART B 로 가지 말고 unresolved 분기로 간다.
+ S7 인과사슬 : 채택된 원인을 "원인→결과" 화살표 사슬로 작성(증상 나열 아님).
+              사슬의 화살표 중 로그 증거가 없는 칸 수를 세어 confidence 산정.
+
+confidence 는 METHODOLOGY §3 표(증거 충족도)대로 정해. 느낌으로 적지 마.
+- 담당영역 안 + 원인 불확실 = status:analyzed + confidence:low
+- 담당영역 밖              = status:unresolved + handoff (confidence 표기 안 함)
+
+효율 규칙(METHODOLOGY §4): anchor 부터 바깥으로, 가설이 부르는 grep 만,
+generic(RACH/SCG/RLC/HARQ)은 원인 판정 금지·문맥용만, 순서는 cptime.
+안티패턴(§5): 증상을 원인으로 적기 / 첫 가설 확증 / 연쇄결과를 anchor 로 / wall-clock 정렬 금지.
+
+═══════════════════════════════════════════════════════════
+PART B — case YAML 생성 (PART A 결과를 schema v2 필드에 매핑)
+═══════════════════════════════════════════════════════════
 반드시 지킬 규칙 (schema v2):
 1. case_id = <fingerprint-slug>_<issue_type>_<3-digit-seq>  (날짜 기반 금지).
 2. fingerprint 블록 필수:
    - signature_set: signal 에 실제 등장한 signature ID (keywords.yaml ID 만 사용).
-   - sequence: cptime 기준 상대 순서 (절대시각 미포함).
+   - sequence: cptime 기준 상대 순서 (절대시각 미포함, keywords.yaml ID 표기).
    - sequence_status: 자동 추출이므로 draft.
    - generic(use_for.fingerprint=false) signature 는 signature_set 에 넣지 마.
+2b. root_cause.summary 는 PART A S7 의 인과사슬 문장으로 채워라(증상 나열 금지).
+    root_cause.confidence 는 PART A 에서 산정한 값을 그대로 쓰고,
+    root_cause.evidence 에 가설을 가른 log_pattern 의 pattern_id 를 연결하라.
 3. 위치 표기는 cptime_range 만 사용 (line_range / time_range / raw_examples 금지).
 4. Jira 는 recent_occurrences[].jira 에만. related 에는 hld/tc/api 만.
 5. 신규 case 생성 전 rca_kg/cases/ 의 기존 case 들과 fingerprint(signature_set+sequence)를 비교해줘.
@@ -207,6 +240,7 @@ signal 파일만 만들고, case YAML 은 아직 만들지 마 (P4에서 한다)
 저장 후:
 - rca_kg/indexes/index.md 를 fingerprint 기준으로 갱신.
 - 답변에 변경 요약 + signature_set + sequence + 재발/신규/이관 판정 결과를 표로 정리.
+- PART A 의 인과사슬 1줄과 confidence(+산정 근거)를 함께 보여줘.
 - candidate signature 중 이번에 실로그로 확인된 ID 목록을 따로 알려줘 (P6 입력).
 ```
 
@@ -229,9 +263,16 @@ signal 파일만 만들고, case YAML 은 아직 만들지 마 (P4에서 한다)
 
 특히:
 - fingerprint.signature_set 에 generic signature 가 섞이지 않았는지
+- fingerprint.signature_set / sequence / log_patterns[].signature 가 모두
+  keywords.yaml ID 표기인지 (alias 표기 Msg1/beamFail 등 금지)
 - cptime_range 만 썼는지 (line_range/time_range/raw_examples 금지 위반 없는지)
 - root_cause.category 가 taxonomy active 목록 안인지
 - issue_type 이 crash 가 아닌지
+- (원인분석 품질) root_cause.summary 가 증상 나열이 아니라 인과사슬(원인→결과)인지
+- (원인분석 품질) confidence 가 METHODOLOGY §3 표(증거 충족도)와 일치하는지,
+  화살표 중 추정으로 메운 칸 수와 모순되지 않는지
+- (도메인 분리) 환경/RF 원인인데 confidence:low 로 들고 있지 않은지
+  (그렇다면 unresolved 로 빠져야 함)
 
 자가 점검 후, 사람이 승인하면 적용할 'review 승인 패치'를 미리 만들어서 보여줘
 (아직 적용하지 마):

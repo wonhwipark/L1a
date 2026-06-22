@@ -12,11 +12,11 @@ status: confirmed   # analyzed | unresolved | reviewed | confirmed | rejected
 # ─────────────────────────────────────
 fingerprint:
   signature_set:
-    - Msg1
-    - Msg2
-    - Msg3
-    - PHY_TIMER_EXPIRY
-  sequence: "Msg1→Msg2→Msg3→(PHY_TIMER_EXPIRY)"
+    - RACH_MSG1
+    - RACH_MSG2
+    - RACH_MSG3
+    - RACH_PHY_TIMER_EXPIRY
+  sequence: "RACH_MSG1→RACH_MSG2→RACH_MSG3→(RACH_PHY_TIMER_EXPIRY)"
   sequence_status: confirmed   # 분석자가 노이즈 제거 후 정규형 확정함
 
 occurrence_count: 7
@@ -60,7 +60,7 @@ symptom:
 # ─────────────────────────────────────
 log_patterns:
   - pattern_id: lp_rach_msg3_timeout
-    signature: PHY_TIMER_EXPIRY        # keywords.yaml 참조, 본문 텍스트 미저장
+    signature: RACH_PHY_TIMER_EXPIRY   # keywords.yaml signature ID 참조, 본문 텍스트 미저장
     cptime_range: "118420-118600"      # signal_file 내 위치 (cptime 기준)
     frequency: 3
 

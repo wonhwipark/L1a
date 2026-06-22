@@ -1,8 +1,10 @@
 # 5.5 RCA Knowledge Graph — 전체 사용 시나리오
 
 > 이 문서는 "그래서 실제로 어떻게 돌리는가"를 처음부터 끝까지 한 장에 보여준다.
+> **순서대로 따라 하는 실행 설명서(L1SW 연동 → P0~P6)는 `RUNBOOK_L1SW_TO_P6.md` 를 본다.**
 > 설계 의도·결정 이력은 `HANDOFF.md` 와 `prompt/deepdive/` 를 본다.
 > 단계별 실행 프롬프트 전문은 `prompt/CLAUDE_CODE_PROMPTS_e2e_v1.md` 를 본다.
+> 원인분석 추론법은 `prompt/deepdive/RCA_ANALYSIS_METHODOLOGY.md` 를 본다.
 > 수동 절차 상세는 `scripts/README.md` 를 본다.
 >
 > 최종 업데이트: 2026-06-22 0805 KST
